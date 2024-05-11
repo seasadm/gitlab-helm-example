@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Chart.Name }}
+data:
+  load-dump.sh: |
+    export DUMP_NAME=/dump/backup_{{ .Values.global.env }}.db
+    PGPASSWORD=${DUMP_POSTGRES_PASSWORD} pg_dump -b -f ${DUMP_NAME} \
+    --schema=public --no-owner \
+    -h ${DUMP_POSTGRES_HOST} -U ${DUMP_POSTGRES_USER} -d ${DUMP_POSTGRES_DB} -p ${DUMP_POSTGRES_PORT}
+    if [ -f ${DUMP_NAME} ]; then
+      set -x
+      ls -alh ${DUMP_NAME}
+      echo "REVOKE CONNECT ON DATABASE ${RESTORE_POSTGRES_DB} FROM public;" | PGPASSWORD=${RESTORE_POSTGRES_PASSWORD} psql -h ${RESTORE_POSTGRES_HOST} -U ${RESTORE_POSTGRES_USER}
+      echo "SELECT pid, pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid();" | PGPASSWORD=${RESTORE_POSTGRES_PASSWORD} psql -h ${RESTORE_POSTGRES_HOST} -U ${RESTORE_POSTGRES_USER} ${RESTORE_POSTGRES_DB}
+      while [[ $(echo "drop database ${RESTORE_POSTGRES_DB}" | PGPASSWORD=${RESTORE_POSTGRES_PASSWORD} psql -h ${RESTORE_POSTGRES_HOST} -U ${RESTORE_POSTGRES_USER} postgres) != "DROP DATABASE" ]] ; do
+        echo "dropping database"
+      done
+      echo "create database ${RESTORE_POSTGRES_DB}" | PGPASSWORD=${RESTORE_POSTGRES_PASSWORD} psql -h ${RESTORE_POSTGRES_HOST} -U ${RESTORE_POSTGRES_USER} postgres
+      echo "GRANT CONNECT ON DATABASE ${RESTORE_POSTGRES_DB} TO ${RESTORE_POSTGRES_USER};" | PGPASSWORD=${RESTORE_POSTGRES_PASSWORD} psql -h ${RESTORE_POSTGRES_HOST} -U ${RESTORE_POSTGRES_USER}
+      PGPASSWORD=${RESTORE_POSTGRES_PASSWORD} psql -h ${RESTORE_POSTGRES_HOST} -U ${RESTORE_POSTGRES_USER} ${RESTORE_POSTGRES_DB} < ${DUMP_NAME}
+    else
+      echo "DB dump not exists!"
+      exit 1
+    fi

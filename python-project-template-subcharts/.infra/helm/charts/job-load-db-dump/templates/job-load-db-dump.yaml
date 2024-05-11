@@ -1,0 +1,36 @@
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Chart.Name }}
+  annotations:
+    "helm.sh/hook": post-install,pre-upgrade
+    "helm.sh/hook-weight": "0"
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      name: {{ .Chart.Name }}
+    spec:
+      imagePullSecrets:
+      - name: registrysecret
+      containers:
+      - name: backend
+        image: postgres:13-alpine
+        command: ["/bin/sh"]
+        args: ["/opt/load-dump.sh"]
+        env:
+{{- include "dump_postgres_envs" . | indent 8 }}
+        volumeMounts:
+        - name: load-dump-sh
+          mountPath: /opt/load-dump.sh
+          subPath: load-dump.sh
+        - mountPath: /dump
+          name: dump
+      restartPolicy: Never
+      volumes:
+      - name: load-dump-sh
+        configMap:
+          name: {{ .Chart.Name }}
+      - name: dump
+        emptyDir: {}

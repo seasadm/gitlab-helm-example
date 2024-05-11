@@ -1,0 +1,32 @@
+apiVersion: v2
+name: async-backend
+version: 0.0.1
+
+dependencies:
+- name: minio
+  version: 0.1
+  condition: minio.enabled
+- name: postgres
+  version: 0.1
+  condition: postgres.enabled
+- name: rabbitmq
+  version: 0.1
+  condition: rabbitmq.enabled
+- name: ingress-tls
+  version: 0.1
+  condition: ingress-tls.enabled
+- name: backend
+  version: 0.1
+  condition: backend.enabled
+- name: job-mc-create-bucket
+  version: 0.1
+  condition: job-mc-create-bucket.enabled
+- name: job-migrations
+  version: 0.1
+  condition: job-migrations.enabled
+- name: job-load-db-dump
+  version: 0.1
+  condition: job-load-db-dump.enabled
+- name: postgres-backup
+  version: 0.1
+  condition: postgres-backup.enabled

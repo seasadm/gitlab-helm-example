@@ -1,0 +1,7 @@
+minio:
+  storage:
+    _default: '1Gi'
+  MINIO_ACCESS_KEY:
+    _default: minioadminaccess
+  MINIO_SECRET_KEY:
+    _default: minioadminkey

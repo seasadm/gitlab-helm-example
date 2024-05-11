@@ -1,0 +1,95 @@
+global:
+  system:
+    storageclass:
+      _default: "hdd"
+  tests: "no"
+  app:
+    DB_URL:
+      _default: postgres://backend:PostgreSQLPass@postgres:5432/backend
+    RMQ_URL:
+      _default: amqp://rabbitmq:RabbitMQPass@rabbitmq
+    RMQ_PARSE_EXCHANGE:
+      _default: throv.parse-file
+    RMQ_PARSE_ROUTING_KEY:
+      _default: throv-parse-file
+    RMQ_PARSE_QUEUE:
+      _default: throv-parse-file
+    S3_ENDPOINT:
+      _default: http://minio:9000
+    S3_ACCESS_KEY:
+      _default: minioadminaccess
+    S3_SECRET_KEY:
+      _default: minioadminkey
+    S3_FILE_BUCKET:
+      _default: throv-upload
+    LOG_LEVEL:
+      _default: "DEBUG"
+
+postgres:
+  postgres:
+    POSTGRES_DB:
+      _default: "backend"
+    POSTGRES_USER:
+      _default: "backend"
+    POSTGRES_PASSWORD:
+      _default: "PostgreSQLPass"
+    storage:
+      _default: "10G"
+
+job-load-db-dump:
+  dump_postgres_host: postgres.async-throv-develop.svc.cluster.local
+  dump_postgres_port: "5432"
+  dump_postgres_db: "backend"
+  dump_postgres_user: "backend"
+  dump_postgres_password: "PostgreSQLPass"
+  restore_postgres_host: postgres
+  restore_postgres_port: "5432"
+  restore_postgres_db: "backend"
+  restore_postgres_user: "backend"
+  restore_postgres_password: "PostgreSQLPass"
+  enabled: false
+
+minio:
+  minio:
+    storage:
+      _default: '2Gi'
+
+rabbitmq:
+  rmq:
+    pvc:
+      size:
+        _default: '2Gi'
+  rmq_definitions:
+    _default:
+      vhosts:
+        - name: '/'
+          exchanges:
+            - name: throv.parse-file
+              type: topic
+              durable: 'true'
+              auto_delete: 'false'
+              internal: 'false'
+              arguments: '{}'
+          queues:
+            - name: throv-parse-file
+              durable: 'true'
+              auto_delete: 'false'
+              arguments: '{}'
+          bindings:
+            - source: throv.parse-file
+              destination: throv-parse-file
+              destination_type: queue
+              routing_key: tf-parse-file
+              arguments: '{}'
+      users:
+        - name: rabbitmq
+          password: 'RabbitMQPass'
+          tags: administrator
+          vhosts:
+            - name: '/'
+              configure: '.*'
+              write: '.*'
+              read: '.*'
+
+postgres-backup:
+  enabled: false

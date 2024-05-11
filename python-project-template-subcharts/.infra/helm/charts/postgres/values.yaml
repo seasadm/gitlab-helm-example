@@ -1,0 +1,7 @@
+postgres:
+  POSTGRES_DB:
+    _default: "test01"
+  POSTGRES_USER:
+    _default: "test01"
+  POSTGRES_PASSWORD:
+    _default: "Test01Pass"

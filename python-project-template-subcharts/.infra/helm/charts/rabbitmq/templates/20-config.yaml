@@ -1,0 +1,179 @@
+---
+## Здесь описываем все конфиги, которые будут подключаться к приложению. ##
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Chart.Name }}
+data:
+  ## Здесь включаем важные плагины, для работы кластера rabbtimq, в частности - rabbitmq_peer_discovery_k8s, который позволяет обнаруживать "соседей" ##
+  ## В подконфиге rabbitmq.conf, описываем важные директивы для создания кластера. В дальнейшем желательно с ними ознакомиться более детально ##
+  enabled_plugins: |
+      [rabbitmq_management,rabbitmq_peer_discovery_k8s,rabbitmq_consistent_hash_exchange,rabbitmq_federation,rabbitmq_federation_management,rabbitmq_shovel,rabbitmq_shovel_management].
+  rabbitmq.conf: |
+      cluster_formation.peer_discovery_backend  = rabbit_peer_discovery_k8s
+      cluster_formation.k8s.host = kubernetes.default.svc.cluster.local
+      cluster_formation.k8s.address_type = hostname
+      cluster_formation.node_cleanup.interval = 10
+      cluster_formation.node_cleanup.only_log_warning = true
+      cluster_partition_handling = autoheal
+      queue_master_locator=min-masters
+      loopback_users.guest = false
+      #log.console = true
+      #log.console.level
+  advanced.config: |
+      [
+        {rabbitmq_management,
+          [{listener, [{port, 15672}]},
+              {load_definitions, "/etc/rabbitmq/rabbitmq_definitions.json"}]
+        }
+      ].
+  ## Описываем права доступа, пользователей, в том числе доступ Okmeter
+  rabbitmq_definitions.json: |
+      {{- $rmq := pluck .Values.global.env .Values.rmq_definitions | first | default .Values.rmq_definitions._default }}
+      {
+        "users": [
+        {{- range $pos, $user := $rmq.users }}
+          {{- if eq $pos 0 }}
+          {
+            "name": "{{ $user.name }}",
+            "password": "{{ $user.password }}",
+            "tags": "administrator"
+          }
+          {{- else -}}
+          ,
+          {
+            "name": "{{ $user.name }}",
+            "password": "{{ $user.password }}",
+            "tags": "{{ $user.tags }}"
+          }
+          {{- end }}
+        {{- end }}
+        ],
+        "permissions": [
+        {{- range $pos, $user := $rmq.users }}
+          {{- range $pos2, $vhost := $user.vhosts }}
+          {{- if and (eq $pos 0) (eq $pos2 0) }}
+          {
+            "user": "{{ $user.name }}",
+            "vhost": "{{ $vhost.name }}",
+            "configure": "{{ $vhost.configure }}",
+            "write": "{{ $vhost.write }}",
+            "read": "{{ $vhost.read }}"
+          }
+          {{- else -}}
+          ,
+          {
+            "user": "{{ $user.name }}",
+            "vhost": "{{ $vhost.name }}",
+            "configure": "{{ $vhost.configure }}",
+            "write": "{{ $vhost.write }}",
+            "read": "{{ $vhost.read }}"
+          }
+          {{- end }}
+          {{- end }}
+        {{- end }}
+        ],
+        "vhosts":[
+        {{- range $pos, $vhost := $rmq.vhosts }}
+          {{- if eq $pos 0 }}
+              {"name": "{{ $vhost.name }}"}
+          {{- else -}}
+              ,
+              {"name": "{{ $vhost.name }}"}
+          {{- end }}
+        {{- end }}
+        ],
+        "policies":[
+        {{- range $pos, $vhost := $rmq.vhosts }}
+          {{- if eq $pos 0 }}
+              {"vhost":"{{ $vhost.name }}","name":"ha","pattern":"", "definition":{"ha-mode":"all","ha-sync-mode":"automatic","ha-sync-batch-size":81920}}
+          {{- else -}}
+              ,
+              {"vhost":"{{ $vhost.name }}","name":"ha","pattern":"", "definition":{"ha-mode":"all","ha-sync-mode":"automatic","ha-sync-batch-size":81920}}
+          {{- end }}
+        {{- end }}
+        ],
+        "exchanges": [
+        {{- range $pos_v, $vhost := $rmq.vhosts }}
+          {{- range $pos_e, $exchange := $vhost.exchanges }}
+            {{- if eq $pos_e 0 }}
+          {
+            "name": "{{ $exchange.name }}",
+            "vhost": "{{ $vhost.name }}",
+            "type": "{{ $exchange.type }}",
+            "durable": {{ $exchange.durable }},
+            "auto_delete": {{ $exchange.auto_delete }},
+            "internal": {{ $exchange.internal }},
+            "arguments": {{ $exchange.arguments }}
+          }
+            {{- else -}}
+              ,
+          {
+            "name": "{{ $exchange.name }}",
+            "vhost": "{{ $vhost.name }}",
+            "type": "{{ $exchange.type }}",
+            "durable": {{ $exchange.durable }},
+            "auto_delete": {{ $exchange.auto_delete }},
+            "internal": {{ $exchange.internal }},
+            "arguments": {{ $exchange.arguments }}
+          }
+            {{- end }}
+          {{- end }}
+          {{- if and (ne $pos_v 0) (lt $pos_v (sub (len $rmq.vhosts) 1)) -}},{{- end -}}
+        {{- end }}
+        ],
+        "queues": [
+        {{- $setComma := false -}}
+        {{- range $pos_v, $vhost := $rmq.vhosts }}
+          {{- range $pos_q, $queue := $vhost.queues }}
+            {{- if or (not (eq $pos_q 0)) (eq $setComma true) -}}
+          ,
+          {
+            "name": "{{ $queue.name }}",
+            "vhost": "{{ $vhost.name }}",
+            "durable": {{ $queue.durable }},
+            "auto_delete": {{ $queue.auto_delete }},
+            "arguments": {{ $queue.arguments }}
+          }
+            {{- else }}
+          {
+            "name": "{{ $queue.name }}",
+            "vhost": "{{ $vhost.name }}",
+            "durable": {{ $queue.durable }},
+            "auto_delete": {{ $queue.auto_delete }},
+            "arguments": {{ $queue.arguments }}
+          }
+            {{- end }}
+            {{- $setComma = true }}
+          {{- end }}
+        {{- end }}
+        ],
+        "bindings": [
+        {{- $setComma := false -}}
+        {{- range $pos_v, $vhost := $rmq.vhosts }}
+          {{- range $pos_b, $binding := $vhost.bindings }}
+            {{- if or (not (eq $pos_b 0)) (eq $setComma true) -}}
+          ,
+          {
+            "source": "{{ $binding.source }}",
+            "vhost": "{{ $vhost.name }}",
+            "destination": "{{ $binding.destination }}",
+            "destination_type": "{{ $binding.destination_type }}",
+            "routing_key": "{{ $binding.routing_key }}",
+            "arguments": {{ $binding.arguments }}
+          }
+            {{- else }}
+          {
+            "source": "{{ $binding.source }}",
+            "vhost": "{{ $vhost.name }}",
+            "destination": "{{ $binding.destination }}",
+            "destination_type": "{{ $binding.destination_type }}",
+            "routing_key": "{{ $binding.routing_key }}",
+            "arguments": {{ $binding.arguments }}
+          }
+            {{- end }}
+            {{- $setComma = true }}
+          {{- end }}
+        {{- end }}
+        ]
+      }

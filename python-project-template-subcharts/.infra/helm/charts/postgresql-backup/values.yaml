@@ -1,0 +1,10 @@
+backup:
+  image: docker.example.ru/base-images/ci-cd/restic-backup:0.2.0
+  bucket_throv:
+    develop: postgresql-develop-postgres
+    test: postgresql-test-postgres
+    production: postgresql-backup-production-postgres
+  bucket_fresh:
+    develop: postgresql-develop-fresh-postgres
+    test: postgresql-test-fresh-postgres
+    production: postgresql-backup-production-fresh-postgres

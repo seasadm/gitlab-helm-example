@@ -1,0 +1,81 @@
+#
+# CI, реализующий GitFlow команды project
+#
+
+variables:
+  HELMARG_API_BASE_DEVELOP:    "--set global.apiBase.develop=$API_BASE_DEVELOP"
+  HELMARG_API_BASE_TEST:       "--set global.apiBase.test=$API_BASE_TEST"
+  HELMARG_API_BASE_STAGE:      "--set global.apiBase.stage=$API_BASE_STAGE"
+  HELMARG_API_BASE_PRODUCTION: "--set global.apiBase.production=$API_BASE_PRODUCTION"
+
+
+build:
+  extends: .base_build
+
+build_prod:
+  extends: .base_build
+  before_script:
+    - docker login -u $DOCKER_REGISTRY_LOGIN_PROD -p $DOCKER_REGISTRY_PASSWORD_PROD $DOCKER_REGISTRY_PROD
+  variables:
+    IMAGE_NAME: ${DOCKER_REGISTRY_PROD}/${CI_PROJECT_NAME}:$CI_COMMIT_TAG
+  only:
+    - tags
+
+deploy to develop:
+  extends: .base_deploy
+  environment:
+    name: develop
+    url: ${URL_DEVELOP}
+  when: manual
+  only:
+    refs:
+      - /infra-.*$/
+      - /feature.*$/
+      - /hotfix.*$/
+      - develop
+
+deploy to test:
+  extends: .base_deploy
+  environment:
+    name: test
+    url: ${URL_TEST}
+  when: manual
+  only:
+    refs:
+      - master
+      - test
+      - /hotfix.*$/
+
+deploy to stage:
+  extends: .base_deploy
+  before_script:
+    - echo ${KUBECONFIGTXT} | base64 -d > ${KUBECONFIG}
+    - kubectl get ns ${CI_NAMESPACE:0:53} || kubectl create namespace ${CI_NAMESPACE:0:53}
+    - kubectl -n ${CI_NAMESPACE:0:53} get secret registrysecret || kubectl -n ${CI_NAMESPACE:0:53} create secret docker-registry registrysecret --docker-username=${DOCKER_REGISTRY_LOGIN_PROD} --docker-password=${DOCKER_REGISTRY_PASSWORD_PROD} --docker-server=${DOCKER_REGISTRY_PROD}
+  environment:
+    name: stage
+    url: ${URL_STAGE}
+  when: manual
+  only:
+    refs:
+      - tags
+  variables:
+    IMAGE_NAME: ${DOCKER_REGISTRY_PROD}/${CI_PROJECT_NAME}:$CI_COMMIT_TAG
+
+deploy to production:
+  extends: .base_deploy
+  before_script:
+    - echo ${KUBECONFIGPROD} | base64 -d > ${KUBECONFIG}
+    - kubectl get ns ${CI_NAMESPACE:0:53} || kubectl create namespace ${CI_NAMESPACE:0:53}
+    - kubectl -n ${CI_NAMESPACE:0:53} get secret registrysecret || kubectl -n ${CI_NAMESPACE:0:53} create secret docker-registry registrysecret --docker-username=${DOCKER_REGISTRY_LOGIN_PROD} --docker-password=${DOCKER_REGISTRY_PASSWORD_PROD} --docker-server=${DOCKER_REGISTRY_PROD}
+  environment:
+    name: production
+    url: ${URL_PRODUCTION}
+  when: manual
+  only:
+    refs:
+      - tags
+  variables:
+    IMAGE_NAME: ${DOCKER_REGISTRY_PROD}/${CI_PROJECT_NAME}:$CI_COMMIT_TAG
+    HTTPSKEY: ${HTTPSKEYPROD}
+    HTTPSCRT: ${HTTPSCRTPROD}

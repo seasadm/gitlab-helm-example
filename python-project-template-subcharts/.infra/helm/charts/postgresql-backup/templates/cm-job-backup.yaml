@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Chart.Name }}-backup-sh
+data:
+  backup.sh: |
+    set -e
+    echo ${BACKUPREPOPASS} > ~/repopass
+    restic -r s3:${BACKUPS3HOST}/${BACKUPBUCKET} init -p ~/repopass || echo "initialised"
+    POSTGRES_USER=$(echo $DATABASEURL | awk -F: '{print $2}' | awk -F/ '{print $3}')
+    POSTGRES_PASSWORD=$(echo $DATABASEURL | awk -F: '{print $3}' | awk -F@ '{print $1}')
+    POSTGRES_HOST=$(echo $DATABASEURL | awk -F: '{print $3}' | awk -F@ '{print $2}')
+    POSTGRES_DB=$(echo $DATABASEURL | awk -F/ '{print $4}')
+    PGPASSWORD=${POSTGRES_PASSWORD} pg_dump -b -Z1 --no-owner -h ${POSTGRES_HOST} -U ${POSTGRES_USER} -d ${POSTGRES_DB} \
+        | restic -r s3:${BACKUPS3HOST}/${BACKUPBUCKET} -p ~/repopass backup --stdin --stdin-filename postgresql.dump
+    restic -r s3:${BACKUPS3HOST}/${BACKUPBUCKET} -p ~/repopass forget --keep-last 10 --prune --group-by path

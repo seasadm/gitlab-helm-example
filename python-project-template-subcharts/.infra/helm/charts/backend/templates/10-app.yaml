@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Chart.Name }}
+spec:
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: {{ .Chart.Name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Chart.Name }}
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - {{ .Chart.Name }}
+            topologyKey: kubernetes.io/hostname
+      containers:
+        - name: {{ .Chart.Name }}
+          command:
+            - bash
+            - -l
+            - -c
+            - python manage.py start
+          image: {{ .Values.global.image_name }}
+          imagePullPolicy: Always
+          env:
+            - name: KUBERNETES_DEPLOYED
+              value: {{ now }}
+{{- include "app_envs" . | indent 12 }}
+          ports:
+            - name: http
+              containerPort: 8000
+          livenessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 30
+          readinessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 30
+{{- if eq .Values.global.env "production" }}
+          resources:
+            requests:
+              cpu: 1500m
+{{- end }}
+      imagePullSecrets:
+        - name: registrysecret
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Chart.Name }}
+  labels:
+    app: {{ .Chart.Name }}
+spec:
+  clusterIP: None
+  ports:
+    - port: 8000
+  selector:
+    app: {{ .Chart.Name }}

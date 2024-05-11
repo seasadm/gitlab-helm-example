@@ -1,0 +1,23 @@
+---
+stages:
+  - build
+  - tests
+  - deploy
+
+.base_tests: &base_tests
+  stage: tests
+  image: ${IMAGE_NAME}
+  only:
+    - branches
+  allow_failure: true
+
+run linter:
+  extends: .base_tests
+  script:
+    - flake8
+
+run unittest:
+  extends: .base_tests
+  script:
+    - python -m pytest
+

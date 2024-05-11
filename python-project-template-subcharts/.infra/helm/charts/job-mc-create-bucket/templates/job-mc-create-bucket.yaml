@@ -1,0 +1,27 @@
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Chart.Name }}
+  annotations:
+    "helm.sh/hook": post-upgrade, post-install
+    "helm.sh/hook-weight": "1"
+spec:
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      name: {{ .Chart.Name }}
+    spec:
+      restartPolicy: OnFailure
+      imagePullSecrets:
+      - name: registrysecret
+      initContainers:
+      - name: wait-minio
+        image: alpine:3.6
+        command: ['/bin/sh', '-c', 'echo "begin" && set -x && while ! getent ahostsv4 minio; do sleep 1; done ' ]
+      containers:
+      - name: migrate-job
+        image: minio/mc
+        command: [ '/bin/sh', '-l', '-c', 'mc config host add minio http://minio:9000 ${MINIO_ACCESS_KEY} ${MINIO_SECRET_KEY}; /usr/bin/mc mb minio/${S3_FILE_BUCKET}; /usr/bin/mc policy set public minio/${S3_FILE_BUCKET};' ]
+        env:
+{{- include "minio_envs" . | indent 8 }}

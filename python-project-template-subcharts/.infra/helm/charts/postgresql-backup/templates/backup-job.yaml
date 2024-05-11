@@ -1,0 +1,50 @@
+{{ range tuple "throv" "fresh" }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $.Release.Namespace }}-backup-{{ . }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 1800
+  template:
+    metadata:
+      name: {{ $.Chart.Name }}
+      labels:
+        job-name: {{ $.Release.Namespace }}-backup-{{ . }}
+        job-description: postgresql-backup
+    spec:
+      imagePullSecrets:
+      - name: registrysecret
+      containers:
+      - name: restic
+        image: {{ $.Values.backup.image }}
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/sh"]
+        args: ["/opt/backup.sh"]
+        env:
+{{- include "restic_envs" $ | indent 10 }}
+{{ if eq . "frov" }}
+          - name: DATABASEURL
+            value: {{ pluck $.Values.global.env $.Values.global.app_frov.DB_URL | first }}
+          - name: BACKUPBUCKET
+            value: {{ pluck $.Values.global.env $.Values.backup.bucket_frov | first }}
+{{ else }}
+          - name: DATABASEURL
+            value: {{ pluck $.Values.global.env $.Values.global.app_fresh.DB_URL | first }}
+          - name: BACKUPBUCKET
+            value: {{ pluck $.Values.global.env $.Values.backup.bucket_fresh | first }}
+{{ end }}
+        volumeMounts:
+        - name: backup-sh
+          mountPath: /opt/backup.sh
+          subPath: backup.sh
+      restartPolicy: Never
+      volumes:
+      - name: backup-sh
+        configMap:
+          name: {{ $.Chart.Name }}-backup-sh
+{{- end }}

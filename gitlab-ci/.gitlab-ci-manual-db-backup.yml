@@ -1,0 +1,61 @@
+# Резервное копирование БД стенда по кнопке перед деплоем.
+#
+variables:
+  HELMARG_BACKUP_S3_ID:        "--set global.backup_s3_id=$BACKUP_S3_ID"
+  HELMARG_BACKUP_S3_KEY:       "--set global.backup_s3_key=$BACKUP_S3_KEY"
+  HELMARG_BACKUP_S3_REPOPASS:  "--set global.backup_repo_pass=$BACKUP_S3_REPOPASS"
+  HELMARG_BACKUP_S3_HOST:      "--set global.backup_s3_host=$BACKUP_S3_HOST"
+
+backup database:
+  extends: .base_deploy
+  stage: maintenance
+  after_script:
+    - kubectl -n ${CI_NAMESPACE:0:53} logs -l job-description=postgresql-backup --tail=-1
+    - helm -n ${CI_NAMESPACE:0:53} delete ${RELEASENAME}
+  only:
+    refs:
+      - /infra-.*$/
+      - develop
+      - test
+  when: manual
+  variables:
+    RELEASENAME:                  backup-postgresql
+    CI_NAMESPACE:                 "${CI_PROJECT_NAME}-${CI_COMMIT_REF_SLUG}"
+    HELMARG_BACKEND_ENABLE:       '--set "backend.enabled=false"'
+    HELMARG_WORKERS_ENABLE:       '--set "workers.enabled=false"'
+    HELMARG_POSTGRES_ENABLE:      '--set "postgres.enabled=false"'
+    HELMARG_RABBITMQ_ENABLE:      '--set "rabbitmq.enabled=false"'
+    HELMARG_INGRESS_TLS:          '--set "ingress-tls.enabled=false"'
+    HELMARG_JOB_MIGRATIONS:       '--set "job-migrations.enabled=false"'
+    HELMARG_JOB_LOAD_DB_DUMP:     '--set "job-load-db-dump.enabled=false"'
+    HELMARG_DB_BACKUP:            '--set "postgres-backup.enabled=true"'
+    HELMARG_ENV:                  ' --set global.env=${CI_COMMIT_REF_SLUG}'
+    DEPLOY_TIMEOUT:               '2400s'
+
+backup prod database:
+  extends: .base_deploy
+  stage: maintenance
+  before_script:
+    - echo ${KUBECONFIGPROD} | base64 -d > ${KUBECONFIG}
+    - kubectl get ns ${CI_NAMESPACE:0:53} || kubectl create namespace ${CI_NAMESPACE:0:53}
+    - kubectl -n ${CI_NAMESPACE:0:53} get secret registrysecret || kubectl -n ${CI_NAMESPACE:0:53} create secret docker-registry registrysecret --docker-username=${DOCKER_REGISTRY_LOGIN_PROD} --docker-password=${DOCKER_REGISTRY_PASSWORD_PROD} --docker-server=${DOCKER_REGISTRY_PROD}
+  after_script:
+    - kubectl -n ${CI_NAMESPACE:0:53} logs -l job-description=postgresql-backup --tail=-1
+    - helm -n ${CI_NAMESPACE:0:53} delete ${RELEASENAME}
+  only:
+    refs:
+      - tags
+  when: manual
+  variables:
+    RELEASENAME:                  backup-postgresql
+    CI_NAMESPACE:                 "${CI_PROJECT_NAME}-production"
+    HELMARG_BACKEND_ENABLE:       '--set "backend.enabled=false"'
+    HELMARG_WORKERS_ENABLE:       '--set "workers.enabled=false"'
+    HELMARG_POSTGRES_ENABLE:      '--set "postgres.enabled=false"'
+    HELMARG_RABBITMQ_ENABLE:      '--set "rabbitmq.enabled=false"'
+    HELMARG_INGRESS_TLS:          '--set "ingress-tls.enabled=false"'
+    HELMARG_JOB_MIGRATIONS:       '--set "job-migrations.enabled=false"'
+    HELMARG_JOB_LOAD_DB_DUMP:     '--set "job-load-db-dump.enabled=false"'
+    HELMARG_DB_BACKUP:            '--set "postgres-backup.enabled=true"'
+    HELMARG_ENV:                  ' --set global.env=production'
+    DEPLOY_TIMEOUT:               '2400s'

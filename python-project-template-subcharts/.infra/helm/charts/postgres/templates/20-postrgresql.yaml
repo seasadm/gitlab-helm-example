@@ -1,0 +1,72 @@
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+ name: {{ .Chart.Name }}
+spec:
+ serviceName: postgres
+ selector:
+   matchLabels:
+     service: postgres
+ template:
+   metadata:
+     labels:
+       service: postgres
+   spec:
+     containers:
+     - name: postgres
+       image: postgres:13-alpine
+       env:
+{{- include "postgres_envs" . | indent 7 }}
+       - name: PGDATA
+         value: "/data/pg_data"
+       - name: POSTGRES_PORT
+         value: '5432'
+       ports:
+       - name: postgres
+         containerPort: 5432
+{{- if eq .Values.global.env "production" }}
+       resources:
+         requests:
+           cpu: 250m
+           memory: 300Mi
+{{- end }}
+       livenessProbe:
+         timeoutSeconds: 1
+         initialDelaySeconds: 30
+         tcpSocket:
+           port: 5432
+       readinessProbe:
+         timeoutSeconds: 1
+         initialDelaySeconds: 5
+         exec:
+           command: [ "/bin/sh", "-i", "-c", "psql -h 127.0.0.1 -U $POSTGRES_USER -q -d $POSTGRES_USER -c 'SELECT 1'"]
+       lifecycle:
+         preStop:
+           exec:
+             command: [ "/bin/sh", "-c", "su postgres -c 'pg_ctl -m fast -w stop'" ]
+       volumeMounts:
+       - mountPath: /data
+         name: data
+ volumeClaimTemplates:
+ - metadata:
+     name: data
+   spec:
+     accessModes: [ "ReadWriteOnce" ]
+     resources:
+       requests:
+         storage: {{ first (pluck .Values.global.env .Values.postgres.storage) | default .Values.postgres.storage._default | quote }}
+     storageClassName: {{ pluck .Values.global.env .Values.global.system.storageclass | first | default .Values.global.system.storageclass._default }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+ name: postgres
+spec:
+ clusterIP: None
+ selector:
+   service: postgres
+ ports:
+ - name: postgres
+   port: 5432
+   targetPort: 5432

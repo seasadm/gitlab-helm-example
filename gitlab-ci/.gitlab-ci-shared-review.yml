@@ -1,0 +1,106 @@
+# Деплой в shared review.
+# Для деплоя в shared review нужно определить переменную
+# SHARED_REVIEW_SUFFIX - базовое имя ДНС wildcars A-записи для кластера.
+#
+variables:
+  SHARED_REVIEW_SUFFIX: "project.dev.example.ru"
+
+deploy to shared review:
+  extends: .base_deploy
+  #деплой камунды
+  after_script:
+    - kubectl -n ${CI_NAMESPACE:0:53} get deployment camunda || curl --request POST
+      --form "variables[IMAGE_NAME]=${DOCKER_REGISTRY}/camunda/${CI_PROJECT_NAME}:${CI_COMMIT_REF_SLUG}"
+      --form "variables[CI_NAMESPACE]=${CI_NAMESPACE:0:53}"
+      --form "variables[REVIEWURL]=camunda-${CI_PROJECT_NAME}-${CI_COMMIT_REF_SLUG}.${SHARED_REVIEW_SUFFIX}"
+      --form "variables[DEPLOYTOREVIEW]=start"
+      --form "token=$CI_JOB_TOKEN"
+      --form "ref=develop"
+      https://scm.example.ru/api/v4/projects/4625/trigger/pipeline
+  environment:
+    name: review-${CI_COMMIT_REF_SLUG}
+    url: "https://${CI_PROJECT_NAME}-${CI_COMMIT_REF_SLUG}.${SHARED_REVIEW_SUFFIX}"
+    on_stop: stop shared review
+    auto_stop_in: 1w
+  only:
+    refs:
+      - /infra-.*$/
+      - /feature.*$/
+  variables:
+    RELEASENAME:              review
+    HELMARG_API_BASE_DEFAULT: "--set global.apiBase.${CI_ENVIRONMENT_SLUG}=api-$(cut -d / -f 3 <<< $CI_ENVIRONMENT_URL)"
+    CI_NAMESPACE:             "rev-${CI_PROJECT_NAME}-${CI_COMMIT_REF_SLUG}"
+    HELMARG_POSTGRES_ENABLE:  '--set "postgres.enabled=true"'
+    HELMARG_JOB_LOAD_DB_DUMP: '--set "job-load-db-dump.enabled=false"'
+    HELMARG_MIGRATIONS_ENABLE: '--set "job-migrations.enabled=true"'
+
+deploy frontend to shared review:
+  image: dtzar/helm-kubectl:3.5.2
+  stage: maintenance
+  script:
+    - curl --request POST
+      --form "variables[IMAGE_NAME]=${DOCKER_REGISTRY}/tender-frontend/${CI_PROJECT_NAME}:${CI_COMMIT_REF_SLUG}"
+      --form "variables[CI_NAMESPACE]=${CI_NAMESPACE:0:53}"
+      --form "variables[REVIEWURL]=front-${CI_PROJECT_NAME}-${CI_COMMIT_REF_SLUG}.${SHARED_REVIEW_SUFFIX}"
+      --form "variables[REACT_APP_API_URL]=https://api-${CI_PROJECT_NAME}-${CI_COMMIT_REF_SLUG}.${SHARED_REVIEW_SUFFIX}"
+      --form "variables[REACT_APP_REDIRECT_URI]=https://front-${CI_PROJECT_NAME}-${CI_COMMIT_REF_SLUG}.${SHARED_REVIEW_SUFFIX}"
+      --form "variables[DEPLOYTOREVIEW]=start"
+      --form "token=$CI_JOB_TOKEN"
+      --form "ref=develop"
+      https://scm.example.ru/api/v4/projects/4555/trigger/pipeline
+  when: manual
+  only:
+    refs:
+      - /infra-.*$/
+      - /feature.*$/
+  variables:
+    CI_NAMESPACE: "rev-${CI_PROJECT_NAME}-${CI_COMMIT_REF_SLUG}"
+
+dev DB to review:
+  extends: .base_deploy
+  stage: maintenance
+  after_script:
+  - kubectl -n ${CI_NAMESPACE:0:53} logs -l job-name=job-load-db-dump --tail=-1
+  - helm -n ${CI_NAMESPACE:0:53} delete ${RELEASENAME}
+  environment:
+    name: review-${CI_COMMIT_REF_SLUG}
+  only:
+    refs:
+      - /infra-.*$/
+      - /feature.*$/
+  when: manual
+  variables:
+    RELEASENAME:                  load-db-dump
+    CI_NAMESPACE:                 "rev-${CI_PROJECT_NAME}-${CI_COMMIT_REF_SLUG}"
+    HELMARG_BACKEND_ENABLE:       '--set "backend.enabled=false"'
+    HELMARG_WORKERS_ENABLE:       '--set "workers.enabled=false"'
+    HELMARG_POSTGRES_ENABLE:      '--set "postgres.enabled=false"'
+    HELMARG_RABBITMQ_ENABLE:      '--set "rabbitmq.enabled=false"'
+    HELMARG_INGRESS_TLS:          '--set "ingress-tls.enabled=false"'
+    HELMARG_JOB_MIGRATIONS:       '--set "job-migrations.enabled=true"'
+    HELMARG_JOB_LOAD_DB_DUMP:     '--set "job-load-db-dump.enabled=true"'
+    DEPLOY_TIMEOUT:               '2400s'
+
+stop shared review:
+  image: dtzar/helm-kubectl:3.5.2
+  stage: cleanup
+  before_script:
+    - echo ${KUBECONFIGTXT} | base64 -d > ${KUBECONFIG}
+  script:
+    - helm -n ${CI_NAMESPACE:0:53} delete ${RELEASENAME}
+    - kubectl delete ns ${CI_NAMESPACE:0:53}
+  variables:
+  environment:
+    name: review-${CI_COMMIT_REF_SLUG}
+    action: stop
+  only:
+    refs:
+      - /infra-.*$/
+      - /feature.*$/
+  when: manual
+  variables:
+    RELEASENAME:   review
+    GIT_STRATEGY:  none
+    GIT_CHECKOUT:  "false"
+    KUBECONFIGTXT: ${KUBECONFIGDEV}
+    CI_NAMESPACE:  "rev-${CI_PROJECT_NAME}-${CI_COMMIT_REF_SLUG}"

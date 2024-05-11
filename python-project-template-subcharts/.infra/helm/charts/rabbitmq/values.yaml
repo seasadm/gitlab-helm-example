@@ -1,0 +1,47 @@
+rmq:
+  replicas:
+    _default: 1
+    production: 3
+  pvc:
+    size:
+      _default: 5Gi
+  cookie:
+    _default: somegeneratedhashzzzznTzWwSxTE
+  user:
+    _default: admin
+  pass:
+    _default: 'RabbitMQPassADM'
+  vhost:
+    _default: '/'
+
+rmq_definitions:
+  _default:
+    vhosts:
+      - name: '/'
+      - name: 'test'
+        exchanges:
+          - name: test.requests
+            type: topic
+            durable: 'true'
+            auto_delete: 'false'
+            internal: 'false'
+            arguments: '{}'
+          - name: test.responses
+            type: topic
+            durable: 'true'
+            auto_delete: 'false'
+            internal: 'false'
+            arguments: '{}'
+    users:
+      - name: rabbitmq
+        password: 'RabbitMQPass'
+        tags: administrator
+        vhosts:
+          - name: '/'
+            configure: '.*'
+            write: '.*'
+            read: '.*'
+          - name: 'test'
+            configure: '.*'
+            write: '.*'
+            read: '.*'

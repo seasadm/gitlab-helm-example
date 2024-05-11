@@ -1,0 +1,43 @@
+---
+apiVersion: networking.k8s.io/v1beta1
+kind: Ingress
+metadata:
+  name: {{ .Chart.Name }}
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/proxy-body-size: "4096m"
+spec:
+  rules:
+  - host: minio-{{ .Values.global.ci_url }}
+    http:
+      paths:
+      - path: /
+        backend:
+          serviceName: minio
+          servicePort: 9000
+  tls:
+  - hosts:
+    - minio-{{ .Values.global.ci_url }}
+    secretName: ingress-tls
+---
+apiVersion: networking.k8s.io/v1beta1
+kind: Ingress
+metadata:
+  name: {{ .Chart.Name }}-bucket
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/proxy-body-size: "4096m"
+    nginx.ingress.kubernetes.io/server-alias: "*.minio-{{ .Values.global.ci_url }}"
+spec:
+  rules:
+  - host: {{ pluck .Values.global.env .Values.global.app.S3_FILE_BUCKET | first | default .Values.global.app.S3_FILE_BUCKET._default }}.minio-{{ .Values.global.ci_url }}
+    http:
+      paths:
+      - path: /
+        backend:
+          serviceName: minio
+          servicePort: 9000
+  tls:
+  - hosts:
+    - {{ pluck .Values.global.env .Values.global.app.S3_FILE_BUCKET | first | default .Values.global.app.S3_FILE_BUCKET._default }}.minio-{{ .Values.global.ci_url }}
+    secretName: ingress-tls

@@ -1,0 +1,68 @@
+# На проекте в gitlab должны быть определены переменные
+# DOCKER_REGISTRY          - адрес docker registry
+# DOCKER_REGISTRY_LOGIN    - логин docker registry
+# DOCKER_REGISTRY_PASSWORD - пароль docker registry
+# KUBECONFIGDEV            - kubeconfig dev кластера
+# KUBECONFIGPROD           - kubeconfig prod кластера
+# HTTPSCRT и HTTPSKEY      - кодированные в base64 ключи, полученные по инструкции https://wiki.example.ru/pages/viewpage.action?pageId=248358966
+#
+# Для передачи переменных в HELM (через директиву --set ) есть возможность определить переменные вида HELMARG[имя].
+# Переменные можно определять в глобальном разделе variables для gitlab-ci или в разделе variables пайплайна.
+# Например:
+# HELMARG_BACKUP_S3_ID: "--set global.postgresql.password.develop=$PSQL_PASS_DEVELOP"
+# Эти переменные будут передаваться в вызов HELM
+#
+# Переменная DEPLOY_TIMEOUT может задавать деплой ожидания выката релиза HELM. По умолчанию - 600 секунд (10 минут).
+
+image: docker:18.1.1-dind
+variables:
+  CI_NAMESPACE: "${CI_PROJECT_NAME}-${CI_ENVIRONMENT_SLUG}"
+  RELEASENAME:  "${CI_PROJECT_NAME}-${CI_ENVIRONMENT_SLUG}"
+  # Предполагается, что на gitlab-runner сокет хостового образа подключен в контейнер для включения кеширования сборки
+  # volumes = ["/cache","/var/run/docker.sock:/var/run/docker.sock"]
+  # номер комита добавлен чтобы исключить проблемы с повторным пулом имиджей на раннерах при одинаковых именах имиджей (image pull policy)
+  # если уверены, что это не зааффектит, можно использовать имя вида ${DOCKER_REGISTRY}/${CI_PROJECT_NAME}:${CI_COMMIT_REF_SLUG}
+  IMAGE_NAME: ${DOCKER_REGISTRY}/${CI_PROJECT_NAME}/${CI_COMMIT_REF_SLUG}:${CI_COMMIT_SHORT_SHA}
+  KUBECONFIG: /tmp/config
+  KUBECONFIGTXT: ${KUBECONFIGDEV}
+  HTTPSKEY: ${HTTPSKEYDEV}
+  HTTPSCRT: ${HTTPSCRTDEV}
+
+stages:
+  - build
+  - deploy
+
+.base_build: &base_build
+  stage: build
+  services:
+    - name: docker:18.1.1-dind
+      alias: docker
+  before_script:
+    - docker login -u $DOCKER_REGISTRY_LOGIN -p $DOCKER_REGISTRY_PASSWORD $DOCKER_REGISTRY
+  script:
+    - echo ${CI_COMMIT_TAG}
+    - cat ${PIPCONF} > ./pip.conf
+    - .infra/build.sh
+  only:
+    - branches
+
+.base_deploy: &base_deploy
+  image: dtzar/helm-kubectl:3.5.2
+  stage: deploy
+  before_script:
+    - echo ${KUBECONFIGTXT} | base64 -d > ${KUBECONFIG}
+    - kubectl get ns ${CI_NAMESPACE:0:53} || kubectl create namespace ${CI_NAMESPACE:0:53}
+    - kubectl -n ${CI_NAMESPACE:0:53} get secret registrysecret || kubectl -n ${CI_NAMESPACE:0:53} create secret docker-registry registrysecret --docker-username=${DOCKER_REGISTRY_LOGIN} --docker-password=${DOCKER_REGISTRY_PASSWORD} --docker-server=${DOCKER_REGISTRY}
+  script:
+    - HELMARGSSET=$(eval echo $(set | grep HELMARG | grep '\-\-set ' | awk -F= '{printf "$"$1" "}'))
+    - eval helm upgrade --install -n ${CI_NAMESPACE:0:53} ${RELEASENAME} .infra/helm
+             --set global.env=${CI_ENVIRONMENT_SLUG}
+             --set global.ci_url=$(cut -d / -f 3 <<< $CI_ENVIRONMENT_URL)
+             --set global.image_name=${IMAGE_NAME}
+             --set global.httpskey="${HTTPSKEY}"
+             --set global.httpscrt="${HTTPSCRT}"
+             --set global.gitlab.pipeline="${CI_PIPELINE_URL}"
+             ${HELMARGSSET}
+             --wait
+             --timeout "${DEPLOY_TIMEOUT:-600s}"
+             --history-max 3

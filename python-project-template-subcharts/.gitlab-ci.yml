@@ -1,0 +1,69 @@
+---
+include:
+  - project: py-libs/infra/gitlab-ci
+    file: .gitlab-ci-base.yml
+  - project: py-libs/infra/gitlab-ci
+    file: .gitlab-ci-default.yml
+  - project: py-libs/infra/gitlab-ci
+    file: .gitlab-ci-tests.yml
+
+stages:
+  - build
+  - tests
+  - deploy
+  - db_dump
+  - cleanup
+
+variables:
+  CI_NAMESPACE: "appexample-${CI_ENVIRONMENT_SLUG}"
+  RELEASENAME: "appexample-backend-${CI_ENVIRONMENT_SLUG}"
+  URL_DEVELOP: "https://appexample-develop.clustername.dev.example.ru"
+  URL_TEST: "https://appexample-test.clustername.dev.example.ru"
+  URL_STAGE: "https://appexample-stage.clustername.dev.example.ru"
+  URL_PRODUCTION: "https://appexample.dev.example.ru"
+
+dev DB to review:
+  extends: .base_deploy
+  stage: db_dump
+  environment:
+    name: review-${CI_COMMIT_REF_SLUG}
+  variables:
+    RELEASENAME: load-db-dump
+    HELMARG_BACKEND_ENABLE:       '--set "backend.enabled=false"'
+    HELMARG_MINIO_ENABLE:         '--set "minio.enabled=false"'
+    HELMARG_POSTGRES_ENABLE:      '--set "postgres.enabled=false"'
+    HELMARG_RABBITMQ_ENABLE:      '--set "rabbitmq.enabled=false"'
+    HELMARG_INGRESS_TLS:          '--set "ingress-tls.enabled=false"'
+    HELMARG_JOB_MC_CREATE_BUCKET: '--set "job-mc-create-bucket.enabled=false"'
+    HELMARG_JOB_MIGRATIONS:       '--set "job-migrations.enabled=true"'
+    HELMARG_JOB_LOAD_DB_DUMP:     '--set "job-load-db-dump.enabled=true"'
+  only:
+    refs:
+      - /infra-.*$/
+      - /feature.*$/
+  when: manual
+  after_script:
+  - kubectl -n ${CI_ENVIRONMENT_SLUG} logs -l job-name=job-load-db-dump --tail=-1
+  - helm -n ${CI_ENVIRONMENT_SLUG} delete ${RELEASENAME}
+#  needs:
+#    - deploy to shared review
+
+deploy to production:
+  extends: .base_deploy
+  environment:
+    name: production
+    url: ${URL_PRODUCTION}
+  when: manual
+  only:
+    refs:
+      - tags
+  variables:
+    CI_NAMESPACE: "appexample-production"
+    RELEASENAME:  "appexample-backend-production"
+    KUBECONFIGTXT: ${KUBECONFIGPROD}
+    IMAGE_NAME: ${DOCKER_REGISTRY_PROD}/${CI_PROJECT_NAME}:$CI_COMMIT_TAG
+    DOCKER_REGISTRY: $DOCKER_REGISTRY_PROD
+    DOCKER_REGISTRY_LOGIN: $DOCKER_REGISTRY_LOGIN_PROD
+    DOCKER_REGISTRY_PASSWORD: $DOCKER_REGISTRY_PASSWORD
+    HELMARG_POSTGRES_DB_URL: '--set global.app.DB_URL={$POSTGRES_PROD_DB_URL}'
+    HELMARG_PROD_POSTGRES_DISABLE: '--set postgres.enabled=false'
